@@ -1,0 +1,21 @@
+python /home/Users/dqy/Projects/ConCutMix/main.py\
+  --data /home/Users/dqy/Projects/ConCutMix/data/Cifar100-LT/ \
+  --lr 0.15 -p 194 --epochs 200 \
+  --arch resnet32 \
+  --wd 5e-4 \
+  --cl_views uncutout-sim \
+  --batch-size 256\
+  --warmup_epochs 5\
+  --feat_dim 128\
+  --alpha 0 \
+  --beta 1\
+  --temp 0.1\
+  --tau 1\
+  --file_name baseline \
+  --root_log "/home/Users/dqy/Projects/ConCutMix/log_Contrast"\
+  --dataset "Cifar100-LT"\
+  --imb_factor 0.1\
+  --l_d_warm 100\
+  --topk 30\
+  --scaling_factor 20 255\
+  --num_classes 100

@@ -27,6 +27,8 @@ from utils import rand_augment_transform
 from utils import shot_acc, GaussianBlur
 from utils import CIFAR10Policy
 from concurrent.futures import ThreadPoolExecutor
+import sys
+import logging
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', default='imagenet',
@@ -148,9 +150,42 @@ def main():
     main_worker(args.gpu, ngpus_per_node, args)
 
 
+def setup_logging(log_file):
+    """设置日志配置"""
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+
+    # 创建logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    # 清除已有的handler
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+
+    # 创建formatter
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+    # 文件handler
+    file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
+    file_handler.setFormatter(formatter)
+
+    # 控制台handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+
+    # 添加handler
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    return logger
+
+
 def main_worker(gpu, ngpus_per_node, args):
+    # 设置日志
+    log_file = os.path.join(args.root_log, args.store_name, "log.txt")
+    logger = setup_logging(log_file)
     logger_run = None
-    print(args.logger)
+    logger.info(args.logger)
     if args.logger == "neptune":
         if args.ne_run != None:
 
@@ -175,10 +210,10 @@ def main_worker(gpu, ngpus_per_node, args):
 
     args.gpu = gpu
     if args.gpu is not None:
-        print("Use GPU: {} for training".format(args.gpu))
+        logger.info("Use GPU: {} for training".format(args.gpu))
 
     # create model
-    print("=> creating model '{}'".format(args.arch))
+    logger.info("=> creating model '{}'".format(args.arch))
 
     if args.arch == 'resnet50':
         model = BCLModel(name='resnet50', feat_dim=args.feat_dim,
@@ -216,11 +251,12 @@ def main_worker(gpu, ngpus_per_node, args):
 
     optimizer = torch.optim.SGD(model.parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
     best_acc1 = 0.0
+    best_scl = np.inf
 
     # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
-            print("=> loading checkpoint '{}'".format(args.resume))
+            logger.info("=> loading checkpoint '{}'".format(args.resume))
             checkpoint = torch.load(args.resume, map_location='cuda:0')
             args.start_epoch = checkpoint['epoch']
             best_acc1 = checkpoint['best_acc1']
@@ -229,28 +265,28 @@ def main_worker(gpu, ngpus_per_node, args):
                 best_acc1 = best_acc1.to(args.gpu)
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
-            print("=> loaded checkpoint '{}' (epoch {})"
+            logger.info("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
-            print("best_acc1", best_acc1)
+            logger.info("best_acc1", best_acc1)
         else:
-            print("=> no checkpoint found at '{}'".format(args.resume))
+            logger.info("=> no checkpoint found at '{}'".format(args.resume))
     elif args.auto_resume:
         filename = os.path.join(args.root_log, args.store_name, 'ConCutMix_ckpt.pth.tar')
         if os.path.isfile(filename):
-            print("=> auto loading checkpoint '{}'".format(filename))
+            logger.info("=> auto loading checkpoint '{}'".format(filename))
             checkpoint = torch.load(filename, map_location='cuda:0')
             args.start_epoch = checkpoint['epoch']
             best_acc1 = checkpoint['best_acc1']
-            print("best_acc1", best_acc1)
+            logger.info("best_acc1", best_acc1)
             if args.gpu is not None:
                 # best_acc1 may be from a checkpoint from a different GPU
                 best_acc1 = best_acc1.to(args.gpu)
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
-            print("=> loaded checkpoint '{}' (epoch {})"
+            logger.info("=> loaded checkpoint '{}' (epoch {})"
                   .format(filename, checkpoint['epoch']))
         else:
-            print("=> no auto checkpoint found at '{}'".format(filename))
+            logger.info("=> no auto checkpoint found at '{}'".format(filename))
     elif args.reload_torch:
         state_dict = model.state_dict()
         state_dict_imagenet = torch.load(args.reload_torch)
@@ -258,9 +294,9 @@ def main_worker(gpu, ngpus_per_node, args):
             newkey = key[8:]
             if newkey in state_dict_imagenet.keys() and state_dict[key].shape == state_dict_imagenet[newkey].shape:
                 state_dict[key] = state_dict_imagenet[newkey]
-                print(newkey + " ****loaded******* ")
+                logger.info(newkey + " ****loaded******* ")
             else:
-                print(key + " ****unloaded******* ")
+                logger.info(key + " ****unloaded******* ")
         model.load_state_dict(state_dict)
     # cudnn.benchmark = True
 
@@ -270,7 +306,7 @@ def main_worker(gpu, ngpus_per_node, args):
     rgb_mean = (0.485, 0.456, 0.406)
     ra_params = dict(translate_const=int(224 * 0.45), img_mean=tuple([min(255, round(255 * x)) for x in rgb_mean]), )
     if not os.path.exists('{}/'.format(os.path.join(args.root_log, args.store_name))):  # 判断所在目录下是否有该文件名的文件夹
-        os.mkdir(os.path.join(args.root_log, args.store_name))
+        os.makedirs(os.path.join(args.root_log, args.store_name), exist_ok=True)
 
     augmentation_randnclsstack = [
         transforms.RandomResizedCrop(224),
@@ -536,7 +572,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     cls_num_list = train_dataset.cls_num_list
     args.cls_num = len(cls_num_list)
-    print(len(cls_num_list))
+    logger.info(len(cls_num_list))
     train_sampler = None
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
@@ -582,20 +618,20 @@ def main_worker(gpu, ngpus_per_node, args):
         test_loader = torch.utils.data.DataLoader(
             test_dataset, batch_size=args.batch_size, shuffle=False,
             num_workers=args.workers, pin_memory=True)
-        acc1, many, med, few, class_acc = validate(train_loader, test_loader, model, criterion_ce, 1, args)
-        print('Prec@1: {:.3f}, Many Prec@1: {:.3f}, Med Prec@1: {:.3f}, Few Prec@1: {:.3f}'
-              .format(acc1, many, med, few, ))
+        acc1, many, med, few, class_acc, scl_loss = validate(train_loader, test_loader, model, criterion_ce, criterion_scl, 1, args, logger=logger)
+        logger.info('Prec@1: {:.3f}, Many Prec@1: {:.3f}, Med Prec@1: {:.3f}, Few Prec@1: {:.3f}, SCL loss: {:.3f}'
+              .format(acc1, many, med, few, scl_loss))
 
         return
-    print("start train")
+    logger.info("start train")
     for epoch in range(args.start_epoch, args.epochs):
         adjust_lr(optimizer, epoch, args)
         ce_loss_all, scl_loss_all, top1, loss = train(train_loader, model, criterion_ce, criterion_ce_cutmix,
                                                       criterion_scl, optimizer,
                                                       epoch, args,
-                                                      logger_run, cls_num_list)
+                                                      logger_run, cls_num_list, logger)
         # evaluate on validation set
-        acc1, many, med, few, class_acc = validate(train_loader, val_loader, model, criterion_ce, epoch, args,
+        acc1, many, med, few, class_acc, scl_loss = validate(train_loader, val_loader, model, criterion_ce, criterion_scl, epoch, args, logger=logger
                                                    )
         if (args.logger == "neptune"):
             logger_run["few_acc"].log(few, step=epoch)
@@ -619,7 +655,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 logger_run["val_acc_top1"].log(best_acc1, step=epoch)
                 logger_run["many_acc_top1"].log(best_many, step=epoch)
                 logger_run["median_acc_top1"].log(best_med, step=epoch)
-            print(
+            logger.info(
                 'Best Prec@1: {:.3f}, Many Prec@1: {:.3f}, Med Prec@1: {:.3f}, Few Prec@1: {:.3f}'.format(
                     best_acc1,
                     best_many,
@@ -633,11 +669,28 @@ def main_worker(gpu, ngpus_per_node, args):
             'best_acc1': best_acc1,
             'optimizer': optimizer.state_dict(),
         }, is_best)
+        # remember best scl and save checkpoint
+        is_best = scl_loss < best_scl
+        best_scl = min(scl_loss, best_scl)
+        if is_best:
+            if (logger_run != None):
+                logger_run["val/best_scl_loss"].log(best_scl, step=epoch)
+            logger.info(
+                'Best SCL loss: {:.3f}'.format(
+                    best_scl
+                ))
+        save_checkpoint(args, {
+            'epoch': epoch + 1,
+            'arch': args.arch,
+            'state_dict': model.state_dict(),
+            'best_scl_loss': best_scl,
+            'optimizer': optimizer.state_dict(),
+        }, is_best)
 
 
 def train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl, optimizer, epoch,
           args,
-          logger_run, cls_num_list):
+          logger_run, cls_num_list, logger):
     batch_time = AverageMeter('Time', ':6.3f')
     ce_loss_all = AverageMeter('CE_Loss', ':.4e')
     scl_loss_all = AverageMeter('SCL_Loss', ':.4e')
@@ -697,7 +750,7 @@ def train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl,
             centers = centers[:args.cls_num]
             uncenter = uncenter[:args.cls_num]
             ce_loss = criterion_ce(logits, target_A)
-
+            # print(centers.shape, features.shape, target_A.shape)
             scl_loss = criterion_scl(centers, features, target_A, )
 
         loss = args.alpha * ce_loss + args.beta * scl_loss
@@ -729,7 +782,7 @@ def train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl,
                       'loss {loss:.4f}'.format(
                 epoch, i, len(train_loader), batch_time=batch_time,
                 ce_loss=ce_loss_all, scl_loss=scl_loss_all, top1=top1, loss=loss))  # TODO
-            print(output)
+            logger.info(output)
 
         ce_loss_all.update(ce_loss.item(), batch_size)
         scl_loss_all.update(scl_loss.item(), batch_size)
@@ -740,11 +793,12 @@ def train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl,
     return ce_loss_all.avg, scl_loss_all.avg, top1.avg, loss
 
 
-def validate(train_loader, val_loader, model, criterion_ce, epoch, args, flag='val'):
+def validate(train_loader, val_loader, model, criterion_ce, criterion_scl, epoch, args, flag='val', logger=None):
     model.eval()
     batch_time = AverageMeter('Time', ':6.3f')
     ce_loss_all = AverageMeter('CE_Loss', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
+    scl_loss_all = AverageMeter('SCL_Loss', ':.4e')
     total_logits = torch.empty((0, args.cls_num)).cuda()
     total_labels = torch.empty(0, dtype=torch.long).cuda()
 
@@ -758,29 +812,35 @@ def validate(train_loader, val_loader, model, criterion_ce, epoch, args, flag='v
             feat_mlp, logits, centers, _, __ = model(inputs)
 
             ce_loss = criterion_ce(logits, targets)
-
+            centers = centers[:args.cls_num]
+            features = feat_mlp[:, None, :].repeat((1, 2, 1))
+            target_A = targets
+            # print(centers.shape, features.shape, target_A.shape)
+            scl_loss = criterion_scl(centers, features, target_A, )
             total_logits = torch.cat((total_logits, logits))
             total_labels = torch.cat((total_labels, targets))
 
             acc1 = accuracy(logits, targets, topk=(1,))
             ce_loss_all.update(ce_loss.item(), batch_size)
+            scl_loss_all.update(scl_loss.item(), batch_size)
             top1.update(acc1[0].item(), batch_size)
 
             batch_time.update(time.time() - end)
 
-        if i % args.print_freq == 0:
-            output = ('Test: [{0}/{1}]\t'
-                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                      'CE_Loss {ce_loss.val:.4f} ({ce_loss.avg:.4f})\t'
-                      'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
-            .format(
-                i, len(val_loader), batch_time=batch_time, ce_loss=ce_loss_all, top1=top1,
-            ))
-            print(output)
+            if i % args.print_freq == 0:
+                output = ('Test: [{0}/{1}]\t'
+                          'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                          'CE_Loss {ce_loss.val:.4f} ({ce_loss.avg:.4f})\t'
+                          'SCL_Loss {scl_loss.val:.4f} ({scl_loss.avg:.4f})\t'
+                          'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
+                .format(
+                    i, len(val_loader), batch_time=batch_time, ce_loss=ce_loss_all, scl_loss=scl_loss_all, top1=top1,
+                ))
+                logger.info(output)
         probs, preds = F.softmax(total_logits.detach(), dim=1).max(dim=1)
         many_acc_top1, median_acc_top1, low_acc_top1, class_acc = shot_acc(preds, total_labels, train_loader,
                                                                            acc_per_cls=False)
-        return top1.avg, many_acc_top1, median_acc_top1, low_acc_top1, class_acc
+        return top1.avg, many_acc_top1, median_acc_top1, low_acc_top1, class_acc, scl_loss_all.avg
 
 
 def rand_bbox(size, lam):
@@ -806,7 +866,10 @@ def save_checkpoint(args, state, is_best):
     filename = os.path.join(args.root_log, args.store_name, 'ConCutMix_ckpt.pth.tar')
     torch.save(state, filename)
     if is_best:
-        shutil.copyfile(filename, filename.replace('pth.tar', 'best.pth.tar'))
+        if 'best_scl_loss' in state:
+            shutil.copyfile(filename, filename.replace('pth.tar', 'best_scl.pth.tar'))
+        else:
+            shutil.copyfile(filename, filename.replace('pth.tar', 'best_acc1.pth.tar'))
 
 
 def adjust_lr(optimizer, epoch, args):

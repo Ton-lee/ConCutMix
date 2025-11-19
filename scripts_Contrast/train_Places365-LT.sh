@@ -1,0 +1,19 @@
+python /home/Users/dqy/Projects/ConCutMix/main.py --data /home/Users/dqy/Dataset/Places365-LT/format_ImageNet/images/ \
+  --lr 0.1 -p 300 --epochs 100 \
+  --arch resnet152 \
+  --use_norm \
+  --wd 5e-4 \
+  --cos \
+  --cl_views sim-sim\
+  --batch-size 256\
+  --tau 0.99\
+  --root_log "/home/Users/dqy/Projects/ConCutMix/log_Contrast"\
+  --l_d_warm 70\
+  --scaling_factor 200 255 \
+  --topk 30\
+  --dataset "Places365-LT"\
+  --file_name baseline \
+  --num_classes 365\
+  --imb_factor 1\
+  --alpha 0 \
+  --beta 1
