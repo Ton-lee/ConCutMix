@@ -1,4 +1,4 @@
-python ../main.py --data /home/pc/utils/dataset/ImageNet2012 \
+python ../main.py --data /home/Users/dqy/Dataset/ImageNet100/images/ \
   --lr 0.1 -p 300 --epochs 100 \
   --arch resnet50 \
   --use_norm \

@@ -1,0 +1,17 @@
+python /home/Users/dqy/Projects/ConCutMix/main.py --data /home/Users/dqy/Dataset/iNaturalist/ \
+  --lr 0.2 -p 600 --epochs 100 \
+  --arch resnet50 \
+  --use_norm  \
+  --wd 1e-4 \
+  --cos \
+  --cl_views sim-sim\
+  --batch-size 128\
+  --tau 0.99\
+  --root_log "/home/Users/dqy/Projects/ConCutMix/log"\
+  --l_d_warm 80\
+  --scaling_factor 1628 255 \
+  --topk 30\
+  --grad_c\
+  --dataset "iNaturalist"\
+  --file_name baseline \
+  --num_classes 8142\

@@ -27,6 +27,9 @@ from utils import rand_augment_transform
 from utils import shot_acc, GaussianBlur
 from utils import CIFAR10Policy
 from concurrent.futures import ThreadPoolExecutor
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', default='imagenet', choices=['inat', 'imagenet', 'cifar10', 'cifar100','Places_LT', 'ImageNet100', 
@@ -115,11 +118,6 @@ parser.add_argument('--topk', default=1, type=int)
 
 
 def main():
-
-
-
-
-
     args = parser.parse_args()
     args.store_name = '_'.join(
         [args.file_name, args.dataset, args.arch, 'batchsize', str(args.batch_size), 'epochs', str(args.epochs), 'temp',
@@ -143,18 +141,33 @@ def main():
                       'You may see unexpected behavior when restarting '
                       'from checkpoints.')
 
-    if args.gpu is not None:
-        warnings.warn('You have chosen a specific GPU. This will completely '
-                      'disable data parallelism.')
+    # DDP 设置
+    if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
+        args.rank = int(os.environ["RANK"])
+        args.world_size = int(os.environ['WORLD_SIZE'])
+        args.gpu = int(os.environ['LOCAL_RANK'])
+    else:
+        print('Not using distributed mode')
+        args.rank = 0
+        args.world_size = 1
+        args.gpu = 0
+
+    args.distributed = args.world_size > 1
+    
+    if args.distributed:
+        print(f"Initializing distributed training: world_size={args.world_size}, rank={args.rank}, gpu={args.gpu}")
+        torch.cuda.set_device(args.gpu)
+        dist.init_process_group(backend='nccl', init_method='env://')
+        dist.barrier()
+
+    main_worker(args.gpu, args)
 
 
-    ngpus_per_node = torch.cuda.device_count()
-    main_worker(args.gpu, ngpus_per_node, args)
-
-
-def main_worker(gpu, ngpus_per_node, args):
+def main_worker(gpu, args):
+    # 设置当前GPU
+    torch.cuda.set_device(gpu)
     logger_run = None
-    print(args.logger)
+    if args.rank == 0: print(args.logger)
     if (args.logger == "neptune"):
         if (args.ne_run != None):
 
@@ -180,11 +193,11 @@ def main_worker(gpu, ngpus_per_node, args):
 
 
     args.gpu = gpu
-    if args.gpu is not None:
+    if args.gpu is not None and args.rank == 0:
         print("Use GPU: {} for training".format(args.gpu))
 
     # create model
-    print("=> creating model '{}'".format(args.arch))
+    if args.rank == 0: print("=> creating model '{}'".format(args.arch))
 
 
     if args.arch == 'resnet50':
@@ -214,11 +227,10 @@ def main_worker(gpu, ngpus_per_node, args):
 
 
 
-    if args.gpu is not None:
-        torch.cuda.set_device(args.gpu)
-        model = model.cuda(args.gpu)
-    else:
-        model = torch.nn.DataParallel(model, device_ids=args.device_ids).cuda()
+    model.cuda(gpu)
+    # 使用DDP包装模型
+    if args.distributed:
+        model = DDP(model, device_ids=[gpu])
 
     # model = torch.nn.DataParallel(model).cuda()
     # model = model.cuda()
@@ -236,7 +248,13 @@ def main_worker(gpu, ngpus_per_node, args):
             if args.gpu is not None:
                 # best_acc1 may be from a checkpoint from a different GPU
                 best_acc1 = best_acc1.to(args.gpu)
-            model.load_state_dict(checkpoint['state_dict'])
+            # 处理DDP状态字典
+            state_dict = checkpoint['state_dict']
+            if args.distributed:
+                # 移除'module.'前缀（如果是从DDP模型保存的）
+                if any(key.startswith('module.') for key in state_dict.keys()):
+                    state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+            model.load_state_dict(state_dict)
             optimizer.load_state_dict(checkpoint['optimizer'])
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
@@ -529,8 +547,8 @@ def main_worker(gpu, ngpus_per_node, args):
             normalize
         ])
 
-        txt_val = "/home/Users/dqy/Dataset/Places365/format_ImageNet/images/val.txt"
-        txt_train = "/home/Users/dqy/Dataset/Places365/format_ImageNet/images/train.txt"
+        txt_val = "/home/Users/dqy/Dataset/Places365-LT/places365_standard/val.txt"
+        txt_train = "/home/Users/dqy/Dataset/Places365-LT/places365_standard/train.txt"
         train_dataset = PlacesLT(
                 root=args.data,
                 args=args,
@@ -545,11 +563,15 @@ def main_worker(gpu, ngpus_per_node, args):
 
     cls_num_list = train_dataset.cls_num_list
     args.cls_num = len(cls_num_list)
-    print(len(cls_num_list))
-    train_sampler = None
+    if args.rank == 0: print(len(cls_num_list))
+    if args.distributed:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(
+            train_dataset, num_replicas=args.world_size, rank=args.rank, shuffle=True)
+    else:
+        train_sampler = None
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
-        num_workers=args.workers, pin_memory=True)
+        num_workers=args.workers, pin_memory=True, sampler=train_sampler)
 
     val_loader = torch.utils.data.DataLoader(
         val_dataset, batch_size=args.batch_size, shuffle=False,
@@ -596,7 +618,7 @@ def main_worker(gpu, ngpus_per_node, args):
               .format(acc1, many, med, few,))
 
         return
-    print("start train")
+    if args.rank == 0: print("start train")
     for epoch in range(args.start_epoch, args.epochs):
         adjust_lr(optimizer, epoch, args)
         ce_loss_all,scl_loss_all,top1,loss=train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl, optimizer,
@@ -647,11 +669,14 @@ def train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl,
           args,
           logger_run, cls_num_list):
     batch_time = AverageMeter('Time', ':6.3f')
-    ce_loss_all = AverageMeter('CE_Loss', ':.4e')
-    scl_loss_all = AverageMeter('SCL_Loss', ':.4e')
-    top1 = AverageMeter('Acc@1', ':6.2f')
+    data_time = AverageMeter('Data', ':6.3f')
+    ce_loss_all = AverageMeter('CE_Loss', ':.4e', distributed=True)
+    scl_loss_all = AverageMeter('SCL_Loss', ':.4e', distributed=True)
+    top1 = AverageMeter('Acc@1', ':6.2f', distributed=True)
     end = time.time()
-
+    # 设置分布式采样器的epoch
+    if args.distributed:
+        train_loader.sampler.set_epoch(epoch)
     model.train()
     for i, data in enumerate(train_loader):
         sample_A, sample_B, target_A, target_B = data  # !Modified: n_views args testing
@@ -688,9 +713,11 @@ def train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl,
                         target_lam = get_semantically_consistent_label(unfeat1, uncenters, target_cutmix, args.scaling_factor,
                                                              cls_num_list, args.topk)
                         ce_loss = criterion_ce_cutmix(logits, target_lam)
+                        acc1 = accuracy(logits, target_lam, topk=(1,))
                 else:
                         ce_loss = criterion_ce(logits, target_a) * lam + criterion_ce(logits, target_b,
                                                                                   ) * (1. - lam)
+                        acc1 = [0]
 
                 features = torch.cat([f2.unsqueeze(1), f3.unsqueeze(1)], dim=1)
                 centers = centers[:args.cls_num]
@@ -705,6 +732,7 @@ def train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl,
             centers = centers[:args.cls_num]
             uncenter = uncenter[:args.cls_num]
             ce_loss = criterion_ce(logits, target_A)
+            acc1 = accuracy(logits, target_A, topk=(1,))
 
             scl_loss = criterion_scl(centers, features, target_A,)
 
@@ -712,6 +740,12 @@ def train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl,
 
         ce_loss_all.update(ce_loss.item(), batch_size)
         scl_loss_all.update(scl_loss.item(), batch_size)
+        top1.update(acc1[0], batch_size)
+        # 实时同步指标
+        ce_loss_all.sync(args)
+        scl_loss_all.sync(args)
+        top1.sync(args)
+
         # 梯度累积
         if (args.grad_c):
             loss = loss / (256 / batch_size)
@@ -719,8 +753,6 @@ def train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl,
             if ((i + 1) % (256 / batch_size) == 0):
                 optimizer.step()
                 optimizer.zero_grad()
-
-
         else:
             optimizer.zero_grad()
             loss.backward()
@@ -729,7 +761,7 @@ def train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl,
         end = time.time()
 
 
-        if i % args.print_freq == 0:
+        if args.rank == 0 and i % args.print_freq == 0:
             output = ('Epoch: [{0}][{1}/{2}] \t'
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                       'CE_Loss {ce_loss.val:.4f} ({ce_loss.avg:.4f})\t'
@@ -737,19 +769,27 @@ def train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl,
                       'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
                       'loss {loss:.4f}'.format(
                 epoch, i, len(train_loader), batch_time=batch_time,
-                ce_loss=ce_loss_all, scl_loss=scl_loss_all, top1=top1, loss=loss))  # TODO
+                ce_loss=ce_loss_all, scl_loss=scl_loss_all, top1=top1, loss=loss.item()))  # TODO
             print(output)
 
-
-        ce_loss_all.update(ce_loss.item(), batch_size)
-        scl_loss_all.update(scl_loss.item(), batch_size)
-
-        acc1 = accuracy(logits, target_A, topk=(1,))
-        top1.update(acc1[0].item(), batch_size)
+    return ce_loss_all.avg, scl_loss_all.avg, top1.avg, loss.item()
 
 
-    return  ce_loss_all.avg,scl_loss_all.avg,top1.avg,loss
-
+def reduce_tensor(tensor, args):
+    """
+    在分布式环境中同步张量或标量
+    """
+    if not args.distributed:
+        return tensor
+    
+    # 如果是标量（float/int），先转换为张量
+    if not isinstance(tensor, torch.Tensor):
+        tensor = torch.tensor(tensor).cuda()
+    
+    rt = tensor.clone()
+    dist.all_reduce(rt, op=dist.ReduceOp.SUM)
+    rt /= args.world_size
+    return rt
 
 
 def validate(train_loader, val_loader, model, criterion_ce, epoch, args, flag='val'):
@@ -767,7 +807,11 @@ def validate(train_loader, val_loader, model, criterion_ce, epoch, args, flag='v
             inputs, targets = inputs.cuda(), targets.cuda()
             batch_size = targets.size(0)
 
-            feat_mlp, logits, centers, _, __ = model(inputs)
+            # 使用DDP模型时，需要调用module
+            if args.distributed:
+                feat_mlp, logits, centers, _, __ = model.module(inputs)
+            else:
+                feat_mlp, logits, centers, _, __ = model(inputs)
 
             ce_loss = criterion_ce(logits, targets)
 
@@ -780,7 +824,7 @@ def validate(train_loader, val_loader, model, criterion_ce, epoch, args, flag='v
 
             batch_time.update(time.time() - end)
 
-        if i % args.print_freq == 0:
+        if args.rank == 0 and i % args.print_freq == 0:
             output = ('Test: [{0}/{1}]\t'
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                       'CE_Loss {ce_loss.val:.4f} ({ce_loss.avg:.4f})\t'
@@ -789,10 +833,26 @@ def validate(train_loader, val_loader, model, criterion_ce, epoch, args, flag='v
                 i, len(val_loader), batch_time=batch_time, ce_loss=ce_loss_all, top1=top1,
                 )) 
             print(output)
-        probs, preds = F.softmax(total_logits.detach(), dim=1).max(dim=1)
-        many_acc_top1, median_acc_top1, low_acc_top1, class_acc = shot_acc(preds, total_labels, train_loader,
-                                                                        acc_per_cls=False)
-        return top1.avg, many_acc_top1, median_acc_top1, low_acc_top1, class_acc
+        # 同步所有进程的预测结果
+        if args.distributed:
+            total_logits = gather_tensors(total_logits, args)
+            total_labels = gather_tensors(total_labels, args)
+        if args.rank == 0 or not args.distributed:
+            probs, preds = F.softmax(total_logits.detach(), dim=1).max(dim=1)
+            many_acc_top1, median_acc_top1, low_acc_top1, class_acc = shot_acc(preds, total_labels, train_loader,
+                                                                            acc_per_cls=False)
+            return top1.avg, many_acc_top1, median_acc_top1, low_acc_top1, class_acc
+        else:
+            return 0, 0, 0, 0, None
+
+
+def gather_tensors(tensor, args):
+    if not args.distributed:
+        return tensor
+    
+    tensor_list = [torch.zeros_like(tensor) for _ in range(args.world_size)]
+    dist.all_gather(tensor_list, tensor)
+    return torch.cat(tensor_list, dim=0)
 
 
 def rand_bbox(size, lam):
@@ -815,7 +875,13 @@ def rand_bbox(size, lam):
 
 
 def save_checkpoint(args, state, is_best):
+    # 只在主进程上保存
+    if args.rank != 0:
+        return
     filename = os.path.join(args.root_log, args.store_name,'ConCutMix_ckpt.pth.tar')
+    # 如果是DDP模型，保存module的状态字典
+    if args.distributed:
+        state['state_dict'] = state['state_dict'].module.state_dict()
     torch.save(state, filename)
     if is_best:
         shutil.copyfile(filename, filename.replace('pth.tar', 'best.pth.tar'))
@@ -838,11 +904,12 @@ def adjust_lr(optimizer, epoch, args):
 
 
 class AverageMeter(object):
-    """Computes and stores the average and current value"""
+    """Computes and stores the average and current value with DDP support"""
 
-    def __init__(self, name, fmt=':f'):
+    def __init__(self, name, fmt=':f', distributed=False):
         self.name = name
         self.fmt = fmt
+        self.distributed = distributed
         self.reset()
 
     def reset(self):
@@ -850,12 +917,38 @@ class AverageMeter(object):
         self.avg = 0
         self.sum = 0
         self.count = 0
+        self.synced = False
 
     def update(self, val, n=1):
         self.val = val
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+        self.synced = False
+
+    def sync(self, args):
+        """同步所有进程的指标"""
+        if not self.distributed or not args.distributed:
+            return
+        
+        # 将指标转换为张量进行同步
+        if isinstance(self.sum, torch.Tensor):
+            total_sum = self.sum.clone().detach().cuda()
+        else:
+            total_sum = torch.tensor(self.sum, dtype=torch.float32).cuda()
+            
+        if isinstance(self.count, torch.Tensor):
+            total_count = self.count.clone().detach().cuda()
+        else:
+            total_count = torch.tensor(self.count, dtype=torch.float32).cuda()
+        
+        dist.all_reduce(total_sum, op=dist.ReduceOp.SUM)
+        dist.all_reduce(total_count, op=dist.ReduceOp.SUM)
+        
+        self.sum = total_sum.item()
+        self.count = total_count.item()
+        self.avg = self.sum / self.count if self.count > 0 else 0
+        self.synced = True
 
     def __str__(self):
         fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'

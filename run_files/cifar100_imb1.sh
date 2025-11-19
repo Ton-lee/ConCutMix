@@ -13,8 +13,8 @@ python /home/Users/dqy/Projects/ConCutMix/main.py\
   --tau 1\
   --file_name baseline \
   --root_log "/home/Users/dqy/Projects/ConCutMix/log"\
-  --dataset "Cifar100-LT"\
-  --imb_factor 0.1\
+  --dataset "Cifar100"\
+  --imb_factor 1\
   --l_d_warm 100\
   --topk 30\
   --scaling_factor 20 255\

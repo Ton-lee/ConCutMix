@@ -53,10 +53,10 @@ class INaturalist(Dataset):
         with open(A_path, 'rb') as f:
             sample_A = Image.open(f).convert('RGB')
 
-        with open(B_path, 'rb') as f:
-            sample_B = Image.open(f).convert('RGB')
         if self.transform is not None:
             if self.train:
+                with open(B_path, 'rb') as f:
+                    sample_B = Image.open(f).convert('RGB')
                 sample_A1 = self.transform[0](sample_A)
                 sample_A2 = self.transform[1](sample_A)
                 sample_A3 = self.transform[2](sample_A)

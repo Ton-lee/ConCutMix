@@ -6,6 +6,13 @@ from PIL import Image
 import random
 
 
+def name_to_label():
+    root = "/home/Users/dqy/Dataset/Places365-LT/places365_standard/train/"
+    categories = sorted(os.listdir(root))
+    mapping = {category: idx for idx, category in enumerate(categories)}
+    return mapping
+
+
 class PlacesLT(Dataset):
     num_classes = 365 
     def __init__(self, root, txt, args,transform=None, train=True):
@@ -14,10 +21,11 @@ class PlacesLT(Dataset):
         self.labels = []
         self.train = train
         self.transform = transform
+        mapping = name_to_label()
         with open(txt) as f:
             for line in f:
                 self.img_path.append(os.path.join(root, line.split()[0]))
-                self.labels.append(int(line.split()[1]))
+                self.labels.append(int(mapping[line.split()[1]]))
 
         self.class_data=[[] for i in range(self.num_classes)]
         for i in range(len(self.labels)):
