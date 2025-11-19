@@ -29,10 +29,13 @@ from utils import CIFAR10Policy
 from concurrent.futures import ThreadPoolExecutor
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', default='imagenet', choices=['inat', 'imagenet', 'cifar10', 'cifar100','Places_LT', 'ImageNet100', 
-    'ImageNet100-LT', 'Places365', 'Places365-LT', 'Cifar100', 'Cifar100-LT', 'Cifar10', 'Cifar10-LT', 'iNaturalist'])
+parser.add_argument('--dataset', default='imagenet',
+                    choices=['inat', 'imagenet', 'cifar10', 'cifar100', 'Places_LT', 'ImageNet100',
+                             'ImageNet100-LT', 'Places365', 'Places365-LT', 'Cifar100', 'Cifar100-LT', 'Cifar10',
+                             'Cifar10-LT', 'iNaturalist'])
 parser.add_argument('--data', default='/DATACENTER/raid5/zjg/imagenet', metavar='DIR')
-parser.add_argument('--arch', default='resnext50', choices=['resnet50', 'resnext50', 'resnet32', 'resnet152' ,'resnext101'])
+parser.add_argument('--arch', default='resnext50',
+                    choices=['resnet50', 'resnext50', 'resnet32', 'resnet152', 'resnext101'])
 parser.add_argument('--workers', default=12, type=int)
 parser.add_argument('--epochs', default=90, type=int)
 parser.add_argument('--temp', default=0.07, type=float, help='scalar temperature for contrastive learning')
@@ -95,7 +98,6 @@ parser.add_argument('--ne_token', default="", type=str)
 parser.add_argument('--ne_project', default="", type=str)
 parser.add_argument('--ne_run', default=None, type=str)
 
-
 # ablation
 parser.add_argument('--Background_sampler', default="uniform", type=str, choices=["balance", "reverse", "uniform"])
 parser.add_argument('--Foreground_sampler', default="balance", type=str, choices=["reverse", "balance", "uniform"])
@@ -104,7 +106,6 @@ parser.add_argument('--Foreground_sampler', default="balance", type=str, choices
 
 parser.add_argument('--cutmix_prob', default=0.5, type=float,
                     help='cutmix probability')
-
 
 # Contrastive CutMix
 parser.add_argument('--l_d_warm', default=0, type=int)
@@ -115,16 +116,12 @@ parser.add_argument('--topk', default=1, type=int)
 
 
 def main():
-
-
-
-
-
     args = parser.parse_args()
     args.store_name = '_'.join(
         [args.file_name, args.dataset, args.arch, 'batchsize', str(args.batch_size), 'epochs', str(args.epochs), 'temp',
-         str(args.temp),"cutmix_prob",str(args.cutmix_prob), "topk", str(args.topk), "scaling_factor", str(args.scaling_factor[0]), str(args.scaling_factor[1]),"tau",str(args.tau)
-         ,'lr', str(args.lr), args.cl_views])
+         str(args.temp), "cutmix_prob", str(args.cutmix_prob), "topk", str(args.topk), "scaling_factor",
+         str(args.scaling_factor[0]), str(args.scaling_factor[1]), "tau", str(args.tau)
+            , 'lr', str(args.lr), args.cl_views])
     print(args.store_name)
     if args.seed is not None:
         random.seed(args.seed)
@@ -147,7 +144,6 @@ def main():
         warnings.warn('You have chosen a specific GPU. This will completely '
                       'disable data parallelism.')
 
-
     ngpus_per_node = torch.cuda.device_count()
     main_worker(args.gpu, ngpus_per_node, args)
 
@@ -155,17 +151,17 @@ def main():
 def main_worker(gpu, ngpus_per_node, args):
     logger_run = None
     print(args.logger)
-    if (args.logger == "neptune"):
-        if (args.ne_run != None):
+    if args.logger == "neptune":
+        if args.ne_run != None:
 
-            logger_run = neptune.init_run(with_id=args.ne_run,project=args.ne_project,
-                                      api_token=args.ne_token,
-                                     description=args.file_name)
+            logger_run = neptune.init_run(with_id=args.ne_run, project=args.ne_project,
+                                          api_token=args.ne_token,
+                                          description=args.file_name)
         else:
             logger_run = neptune.init_run(project=args.ne_project,
-                                      api_token=args.ne_token,
-                                      description=args.file_name
-                                      )
+                                          api_token=args.ne_token,
+                                          description=args.file_name
+                                          )
 
         logger_run["dataset"] = args.dataset
         logger_run["arch"] = args.arch
@@ -177,8 +173,6 @@ def main_worker(gpu, ngpus_per_node, args):
         logger_run["args"] = args
         logger_run["tau"] = args.tau
 
-
-
     args.gpu = gpu
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
@@ -186,33 +180,30 @@ def main_worker(gpu, ngpus_per_node, args):
     # create model
     print("=> creating model '{}'".format(args.arch))
 
-
     if args.arch == 'resnet50':
         model = BCLModel(name='resnet50', feat_dim=args.feat_dim,
-                                 num_classes=args.num_classes ,
+                         num_classes=args.num_classes,
 
-                                 use_norm=args.use_norm)
+                         use_norm=args.use_norm)
     elif args.arch == 'resnext50':
-        model = BCLModel(name='resnext50', feat_dim=args.feat_dim,num_classes=args.num_classes,
-                                 use_norm=args.use_norm)
+        model = BCLModel(name='resnext50', feat_dim=args.feat_dim, num_classes=args.num_classes,
+                         use_norm=args.use_norm)
     elif args.arch == 'resnet32':
 
         model = BCLModel_32(name='resnet32', feat_dim=args.feat_dim,
-                                   num_classes=args.num_classes,
-                                   use_norm=args.use_norm)
-    elif args.arch =="resnet152":
+                            num_classes=args.num_classes,
+                            use_norm=args.use_norm)
+    elif args.arch == "resnet152":
         model = BCLModel(name='resnet152', feat_dim=args.feat_dim,
-                                 num_classes=args.num_classes ,
-                                 use_norm=args.use_norm)
+                         num_classes=args.num_classes,
+                         use_norm=args.use_norm)
     elif args.arch == 'resnext101':
         model = BCLModel(name='resnext101', feat_dim=args.feat_dim,
-                                 num_classes=args.num_classes ,
-                                 use_norm=args.use_norm)
+                         num_classes=args.num_classes,
+                         use_norm=args.use_norm)
     else:
         raise NotImplementedError('This model is not supported')
     # print(model)
-
-
 
     if args.gpu is not None:
         torch.cuda.set_device(args.gpu)
@@ -240,37 +231,37 @@ def main_worker(gpu, ngpus_per_node, args):
             optimizer.load_state_dict(checkpoint['optimizer'])
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
-            print("best_acc1",best_acc1)
+            print("best_acc1", best_acc1)
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
     elif args.auto_resume:
-            filename = os.path.join(args.root_log, args.store_name, 'ConCutMix_ckpt.pth.tar')
-            if os.path.isfile(filename):
-                print("=> auto loading checkpoint '{}'".format(filename))
-                checkpoint = torch.load(filename, map_location='cuda:0')
-                args.start_epoch = checkpoint['epoch']
-                best_acc1 = checkpoint['best_acc1']
-                print("best_acc1",best_acc1)
-                if args.gpu is not None:
-                    # best_acc1 may be from a checkpoint from a different GPU
-                    best_acc1 = best_acc1.to(args.gpu)
-                model.load_state_dict(checkpoint['state_dict'])
-                optimizer.load_state_dict(checkpoint['optimizer'])
-                print("=> loaded checkpoint '{}' (epoch {})"
-                      .format(filename, checkpoint['epoch']))
-            else:
-                print("=> no auto checkpoint found at '{}'".format(filename))
+        filename = os.path.join(args.root_log, args.store_name, 'ConCutMix_ckpt.pth.tar')
+        if os.path.isfile(filename):
+            print("=> auto loading checkpoint '{}'".format(filename))
+            checkpoint = torch.load(filename, map_location='cuda:0')
+            args.start_epoch = checkpoint['epoch']
+            best_acc1 = checkpoint['best_acc1']
+            print("best_acc1", best_acc1)
+            if args.gpu is not None:
+                # best_acc1 may be from a checkpoint from a different GPU
+                best_acc1 = best_acc1.to(args.gpu)
+            model.load_state_dict(checkpoint['state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            print("=> loaded checkpoint '{}' (epoch {})"
+                  .format(filename, checkpoint['epoch']))
+        else:
+            print("=> no auto checkpoint found at '{}'".format(filename))
     elif args.reload_torch:
-            state_dict = model.state_dict()
-            state_dict_imagenet = torch.load(args.reload_torch)
-            for key in state_dict.keys():
-                    newkey = key[8:]
-                    if newkey in state_dict_imagenet.keys() and state_dict[key].shape == state_dict_imagenet[newkey].shape:
-                        state_dict[key]=state_dict_imagenet[newkey]
-                        print(newkey+" ****loaded******* ")
-                    else:
-                        print(key+" ****unloaded******* ")
-            model.load_state_dict(state_dict)
+        state_dict = model.state_dict()
+        state_dict_imagenet = torch.load(args.reload_torch)
+        for key in state_dict.keys():
+            newkey = key[8:]
+            if newkey in state_dict_imagenet.keys() and state_dict[key].shape == state_dict_imagenet[newkey].shape:
+                state_dict[key] = state_dict_imagenet[newkey]
+                print(newkey + " ****loaded******* ")
+            else:
+                print(key + " ****unloaded******* ")
+        model.load_state_dict(state_dict)
     # cudnn.benchmark = True
 
     normalize = transforms.Normalize((0.466, 0.471, 0.380), (0.195, 0.194, 0.192)) if args.dataset == 'inat' \
@@ -360,15 +351,15 @@ def main_worker(gpu, ngpus_per_node, args):
         val_dataset = INaturalist(
             root=args.data,
             txt=txt_val,
-            transform=val_transform, train=False,args=args
+            transform=val_transform, train=False, args=args
         )
 
         train_dataset = INaturalist(
-                root=args.data,
-                txt=txt_train,
-                args=args,
-                transform=transform_train
-            )
+            root=args.data,
+            txt=txt_train,
+            args=args,
+            transform=transform_train
+        )
     elif (args.dataset == 'iNaturalist'):
         val_transform = transforms.Compose([
             transforms.Resize(256),
@@ -382,15 +373,15 @@ def main_worker(gpu, ngpus_per_node, args):
         val_dataset = INaturalist(
             root=args.data,
             txt=txt_val,
-            transform=val_transform, train=False,args=args
+            transform=val_transform, train=False, args=args
         )
 
         train_dataset = INaturalist(
-                root=args.data,
-                txt=txt_train,
-                args=args,
-                transform=transform_train
-            )
+            root=args.data,
+            txt=txt_train,
+            args=args,
+            transform=transform_train
+        )
     elif args.dataset == 'imagenet':
         val_transform = transforms.Compose([
             transforms.Resize(256),
@@ -402,14 +393,14 @@ def main_worker(gpu, ngpus_per_node, args):
         txt_val = f'../dataset/ImageNet_LT/ImageNet_LT_val.txt'
         txt_train = f'../dataset/ImageNet_LT/ImageNet_LT_train.txt'
         train_dataset = ImageNetLT(
-                root=args.data,
-                args=args,
-                txt=txt_train,
-                transform=transform_train)
+            root=args.data,
+            args=args,
+            txt=txt_train,
+            transform=transform_train)
         val_dataset = ImageNetLT(
             root=args.data,
             txt=txt_val,
-            transform=val_transform, train=False,args=args)
+            transform=val_transform, train=False, args=args)
 
     elif args.dataset == 'ImageNet100':
         val_transform = transforms.Compose([
@@ -422,14 +413,14 @@ def main_worker(gpu, ngpus_per_node, args):
         txt_val = "/home/Users/dqy/Dataset/ImageNet100/images/val.txt"
         txt_train = "/home/Users/dqy/Dataset/ImageNet100/images/train.txt"
         train_dataset = ImageNet100(
-                root=args.data,
-                args=args,
-                txt=txt_train,
-                transform=transform_train)
+            root=args.data,
+            args=args,
+            txt=txt_train,
+            transform=transform_train)
         val_dataset = ImageNet100(
             root=args.data,
             txt=txt_val,
-            transform=val_transform, train=False,args=args)
+            transform=val_transform, train=False, args=args)
     elif args.dataset == 'ImageNet100-LT':
         val_transform = transforms.Compose([
             transforms.Resize(256),
@@ -441,14 +432,14 @@ def main_worker(gpu, ngpus_per_node, args):
         txt_val = "/home/Users/dqy/Dataset/ImageNet100-LT/format_ImageNet/images/val.txt"
         txt_train = "/home/Users/dqy/Dataset/ImageNet100-LT/format_ImageNet/images/train.txt"
         train_dataset = ImageNet100(
-                root=args.data,
-                args=args,
-                txt=txt_train,
-                transform=transform_train)
+            root=args.data,
+            args=args,
+            txt=txt_train,
+            transform=transform_train)
         val_dataset = ImageNet100(
             root=args.data,
             txt=txt_val,
-            transform=val_transform, train=False,args=args)
+            transform=val_transform, train=False, args=args)
 
     elif args.dataset == 'cifar10' or args.dataset == 'Cifar10-LT':
         val_transform = transforms.Compose([
@@ -457,11 +448,11 @@ def main_worker(gpu, ngpus_per_node, args):
         ])
         val_dataset = IMBALANCECIFAR10(root=args.data, args=args,
                                        transform=val_transform,
-                                       train=False, imb_factor=1,download=True)
+                                       train=False, imb_factor=1, download=True)
         train_dataset = IMBALANCECIFAR10(
-                root=args.data, args=args,download=True,
-                imb_factor=args.imb_factor,
-                transform=transform_train)
+            root=args.data, args=args, download=True,
+            imb_factor=args.imb_factor,
+            transform=transform_train)
     elif args.dataset == 'Cifar10':
         val_transform = transforms.Compose([
             transforms.ToTensor(),
@@ -469,11 +460,11 @@ def main_worker(gpu, ngpus_per_node, args):
         ])
         val_dataset = IMBALANCECIFAR10(root=args.data, args=args,
                                        transform=val_transform,
-                                       train=False, imb_factor=1,download=True)
+                                       train=False, imb_factor=1, download=True)
         train_dataset = IMBALANCECIFAR10(
-                root=args.data, args=args,download=True,
-                imb_factor=1,
-                transform=transform_train)
+            root=args.data, args=args, download=True,
+            imb_factor=1,
+            transform=transform_train)
     elif args.dataset == 'cifar100' or args.dataset == 'Cifar100-LT':
         val_transform = transforms.Compose([
             transforms.ToTensor(),
@@ -484,10 +475,10 @@ def main_worker(gpu, ngpus_per_node, args):
                                         transform=val_transform,
                                         train=False, imb_factor=1)
         train_dataset = IMBALANCECIFAR100(
-                root=args.data, args=args,
-                download=True,
-                imb_factor=args.imb_factor,
-                transform=transform_train)
+            root=args.data, args=args,
+            download=True,
+            imb_factor=args.imb_factor,
+            transform=transform_train)
     elif args.dataset == 'Cifar100':
         val_transform = transforms.Compose([
             transforms.ToTensor(),
@@ -498,10 +489,10 @@ def main_worker(gpu, ngpus_per_node, args):
                                         transform=val_transform,
                                         train=False, imb_factor=1)
         train_dataset = IMBALANCECIFAR100(
-                root=args.data, args=args,
-                download=True,
-                imb_factor=1,
-                transform=transform_train)
+            root=args.data, args=args,
+            download=True,
+            imb_factor=1,
+            transform=transform_train)
     elif args.dataset == 'Places_LT' or args.dataset == 'Places365-LT':
         val_transform = transforms.Compose([
             transforms.Resize(256),
@@ -513,14 +504,14 @@ def main_worker(gpu, ngpus_per_node, args):
         txt_val = "/home/Users/dqy/Dataset/Places365-LT/places365_LT/val.txt"
         txt_train = "/home/Users/dqy/Dataset/Places365-LT/places365_LT/train.txt"
         train_dataset = PlacesLT(
-                root=args.data,
-                args=args,
-                txt=txt_train,
-                transform=transform_train)
+            root=args.data,
+            args=args,
+            txt=txt_train,
+            transform=transform_train)
         val_dataset = PlacesLT(
             root=args.data,
             txt=txt_val,
-            transform=val_transform, train=False,args=args)
+            transform=val_transform, train=False, args=args)
     elif args.dataset == 'Places365':
         val_transform = transforms.Compose([
             transforms.Resize(256),
@@ -532,14 +523,14 @@ def main_worker(gpu, ngpus_per_node, args):
         txt_val = "/home/Users/dqy/Dataset/Places365/format_ImageNet/images/val.txt"
         txt_train = "/home/Users/dqy/Dataset/Places365/format_ImageNet/images/train.txt"
         train_dataset = PlacesLT(
-                root=args.data,
-                args=args,
-                txt=txt_train,
-                transform=transform_train)
+            root=args.data,
+            args=args,
+            txt=txt_train,
+            transform=transform_train)
         val_dataset = PlacesLT(
             root=args.data,
             txt=txt_val,
-            transform=val_transform, train=False,args=args)
+            transform=val_transform, train=False, args=args)
     else:
         raise ValueError(f"Not implemented dataset {args.dataset}")
 
@@ -565,23 +556,23 @@ def main_worker(gpu, ngpus_per_node, args):
             test_dataset = INaturalist(
                 root=args.data,
                 txt=txt_test,
-                transform=val_transform, train=False,args=args)
+                transform=val_transform, train=False, args=args)
         elif args.dataset == 'imagenet':
             txt_test = f'../dataset/ImageNet_LT/ImageNet_LT_test.txt'
             test_dataset = ImageNetLT(
                 root=args.data,
                 txt=txt_test,
-                transform=val_transform, train=False,args=args)
+                transform=val_transform, train=False, args=args)
         elif args.dataset == 'cifar10':
             test_dataset = IMBALANCECIFAR10(root=args.data, args=args, transform=val_transform, train=False,
-                                            imb_factor=1,download=True)
+                                            imb_factor=1, download=True)
         elif args.dataset == 'Places_LT':
             txt_train = f'../dataset/Places_LT/Places_LT_val.txt'
 
             test_dataset = PlacesLT(
                 root=args.data,
                 txt=txt_val,
-                transform=val_transform, train=False,args=args)
+                transform=val_transform, train=False, args=args)
 
         else:
             test_dataset = IMBALANCECIFAR100(root=args.data, args=args, transform=val_transform, train=False,
@@ -593,23 +584,24 @@ def main_worker(gpu, ngpus_per_node, args):
             num_workers=args.workers, pin_memory=True)
         acc1, many, med, few, class_acc = validate(train_loader, test_loader, model, criterion_ce, 1, args)
         print('Prec@1: {:.3f}, Many Prec@1: {:.3f}, Med Prec@1: {:.3f}, Few Prec@1: {:.3f}'
-              .format(acc1, many, med, few,))
+              .format(acc1, many, med, few, ))
 
         return
     print("start train")
     for epoch in range(args.start_epoch, args.epochs):
         adjust_lr(optimizer, epoch, args)
-        ce_loss_all,scl_loss_all,top1,loss=train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl, optimizer,
-              epoch, args,
-              logger_run, cls_num_list)
+        ce_loss_all, scl_loss_all, top1, loss = train(train_loader, model, criterion_ce, criterion_ce_cutmix,
+                                                      criterion_scl, optimizer,
+                                                      epoch, args,
+                                                      logger_run, cls_num_list)
         # evaluate on validation set
         acc1, many, med, few, class_acc = validate(train_loader, val_loader, model, criterion_ce, epoch, args,
-                                             )
+                                                   )
         if (args.logger == "neptune"):
-            logger_run["few_acc"].log(few,step=epoch)
-            logger_run["val_acc"].log(acc1,step=epoch)
-            logger_run["many_acc"].log(many,step=epoch)
-            logger_run["median_acc"].log(med,step=epoch)
+            logger_run["few_acc"].log(few, step=epoch)
+            logger_run["val_acc"].log(acc1, step=epoch)
+            logger_run["many_acc"].log(many, step=epoch)
+            logger_run["median_acc"].log(med, step=epoch)
             logger_run["CE_loss/train"].log(ce_loss_all, step=epoch, )
             logger_run["SCL_loss/train"].log(scl_loss_all, step=epoch)
             logger_run["train_acc"].log(top1, step=epoch)
@@ -622,18 +614,18 @@ def main_worker(gpu, ngpus_per_node, args):
             best_med = med
             best_few = few
             best_class_acc = class_acc
-            if(logger_run!=None):
-                logger_run["few_acc_top1"].log(best_few,step=epoch)
-                logger_run["val_acc_top1"].log(best_acc1,step=epoch)
-                logger_run["many_acc_top1"].log(best_many,step=epoch)
-                logger_run["median_acc_top1"].log(best_med,step=epoch)
+            if (logger_run != None):
+                logger_run["few_acc_top1"].log(best_few, step=epoch)
+                logger_run["val_acc_top1"].log(best_acc1, step=epoch)
+                logger_run["many_acc_top1"].log(best_many, step=epoch)
+                logger_run["median_acc_top1"].log(best_med, step=epoch)
             print(
                 'Best Prec@1: {:.3f}, Many Prec@1: {:.3f}, Med Prec@1: {:.3f}, Few Prec@1: {:.3f}'.format(
                     best_acc1,
                     best_many,
                     best_med,
                     best_few,
-                    ))
+                ))
         save_checkpoint(args, {
             'epoch': epoch + 1,
             'arch': args.arch,
@@ -665,36 +657,36 @@ def train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl,
         r = np.random.rand(1)
 
         if r < args.cutmix_prob:
-                target_a = target_A
-                target_b = target_B[rand_index]
-                ta = torch.nn.functional.one_hot(target_a, num_classes=args.num_classes)
-                tb = torch.nn.functional.one_hot(target_b, num_classes=args.num_classes)
-                bbx1, bby1, bbx2, bby2 = rand_bbox(sample_B[0].size(), lam)
-                cutmix_sample1 = sample_A[0].clone()
-                cutmix_sample1[:, :, bbx1:bbx2, bby1:bby2] = sample_B[0][rand_index, :, bbx1:bbx2, bby1:bby2]
-                # adjust lambda to exactly match pixel ratio
-                lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1) / (sample_B[0].size()[-1] * sample_B[0].size()[-2]))
-                target_cutmix = (torch.tensor([lam]).cuda() * ta) + ((1 - torch.tensor([lam])).cuda() * tb)
-                inputs = torch.cat([cutmix_sample1, sample_A[1], sample_A[2]], dim=0)
-                inputs = inputs.cuda()
-                feat_mlp, logits, centers, uncenters, unfeat = model(inputs)
-                uncenters = uncenters[:args.cls_num]
-                logits, _, __ = torch.split(logits, [batch_size, batch_size, batch_size], dim=0)
-                f1, f2, f3 = torch.split(feat_mlp, [batch_size, batch_size, batch_size], dim=0)
-                unfeat1, unfeat2, unfeat3 = torch.split(unfeat, [batch_size, batch_size, batch_size], dim=0)
+            target_a = target_A
+            target_b = target_B[rand_index]
+            ta = torch.nn.functional.one_hot(target_a, num_classes=args.num_classes)
+            tb = torch.nn.functional.one_hot(target_b, num_classes=args.num_classes)
+            bbx1, bby1, bbx2, bby2 = rand_bbox(sample_B[0].size(), lam)
+            cutmix_sample1 = sample_A[0].clone()
+            cutmix_sample1[:, :, bbx1:bbx2, bby1:bby2] = sample_B[0][rand_index, :, bbx1:bbx2, bby1:bby2]
+            # adjust lambda to exactly match pixel ratio
+            lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1) / (sample_B[0].size()[-1] * sample_B[0].size()[-2]))
+            target_cutmix = (torch.tensor([lam]).cuda() * ta) + ((1 - torch.tensor([lam])).cuda() * tb)
+            inputs = torch.cat([cutmix_sample1, sample_A[1], sample_A[2]], dim=0)
+            inputs = inputs.cuda()
+            feat_mlp, logits, centers, uncenters, unfeat = model(inputs)
+            uncenters = uncenters[:args.cls_num]
+            logits, _, __ = torch.split(logits, [batch_size, batch_size, batch_size], dim=0)
+            f1, f2, f3 = torch.split(feat_mlp, [batch_size, batch_size, batch_size], dim=0)
+            unfeat1, unfeat2, unfeat3 = torch.split(unfeat, [batch_size, batch_size, batch_size], dim=0)
 
-                if ((epoch > args.l_d_warm) ):
+            if ((epoch > args.l_d_warm)):
 
-                        target_lam = get_semantically_consistent_label(unfeat1, uncenters, target_cutmix, args.scaling_factor,
-                                                             cls_num_list, args.topk)
-                        ce_loss = criterion_ce_cutmix(logits, target_lam)
-                else:
-                        ce_loss = criterion_ce(logits, target_a) * lam + criterion_ce(logits, target_b,
-                                                                                  ) * (1. - lam)
+                target_lam = get_semantically_consistent_label(unfeat1, uncenters, target_cutmix, args.scaling_factor,
+                                                               cls_num_list, args.topk)
+                ce_loss = criterion_ce_cutmix(logits, target_lam)
+            else:
+                ce_loss = criterion_ce(logits, target_a) * lam + criterion_ce(logits, target_b,
+                                                                              ) * (1. - lam)
 
-                features = torch.cat([f2.unsqueeze(1), f3.unsqueeze(1)], dim=1)
-                centers = centers[:args.cls_num]
-                scl_loss = criterion_scl(centers, features, target_A, )
+            features = torch.cat([f2.unsqueeze(1), f3.unsqueeze(1)], dim=1)
+            centers = centers[:args.cls_num]
+            scl_loss = criterion_scl(centers, features, target_A, )
         else:
             inputs = torch.cat([sample_A[0], sample_A[1], sample_A[2]], dim=0)
             inputs = inputs.cuda()
@@ -706,7 +698,7 @@ def train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl,
             uncenter = uncenter[:args.cls_num]
             ce_loss = criterion_ce(logits, target_A)
 
-            scl_loss = criterion_scl(centers, features, target_A,)
+            scl_loss = criterion_scl(centers, features, target_A, )
 
         loss = args.alpha * ce_loss + args.beta * scl_loss
 
@@ -728,7 +720,6 @@ def train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl,
         batch_time.update(time.time() - end)
         end = time.time()
 
-
         if i % args.print_freq == 0:
             output = ('Epoch: [{0}][{1}/{2}] \t'
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
@@ -740,16 +731,13 @@ def train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl,
                 ce_loss=ce_loss_all, scl_loss=scl_loss_all, top1=top1, loss=loss))  # TODO
             print(output)
 
-
         ce_loss_all.update(ce_loss.item(), batch_size)
         scl_loss_all.update(scl_loss.item(), batch_size)
 
         acc1 = accuracy(logits, target_A, topk=(1,))
         top1.update(acc1[0].item(), batch_size)
 
-
-    return  ce_loss_all.avg,scl_loss_all.avg,top1.avg,loss
-
+    return ce_loss_all.avg, scl_loss_all.avg, top1.avg, loss
 
 
 def validate(train_loader, val_loader, model, criterion_ce, epoch, args, flag='val'):
@@ -785,13 +773,13 @@ def validate(train_loader, val_loader, model, criterion_ce, epoch, args, flag='v
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                       'CE_Loss {ce_loss.val:.4f} ({ce_loss.avg:.4f})\t'
                       'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
-                      .format(
+            .format(
                 i, len(val_loader), batch_time=batch_time, ce_loss=ce_loss_all, top1=top1,
-                )) 
+            ))
             print(output)
         probs, preds = F.softmax(total_logits.detach(), dim=1).max(dim=1)
         many_acc_top1, median_acc_top1, low_acc_top1, class_acc = shot_acc(preds, total_labels, train_loader,
-                                                                        acc_per_cls=False)
+                                                                           acc_per_cls=False)
         return top1.avg, many_acc_top1, median_acc_top1, low_acc_top1, class_acc
 
 
@@ -815,11 +803,10 @@ def rand_bbox(size, lam):
 
 
 def save_checkpoint(args, state, is_best):
-    filename = os.path.join(args.root_log, args.store_name,'ConCutMix_ckpt.pth.tar')
+    filename = os.path.join(args.root_log, args.store_name, 'ConCutMix_ckpt.pth.tar')
     torch.save(state, filename)
     if is_best:
         shutil.copyfile(filename, filename.replace('pth.tar', 'best.pth.tar'))
-
 
 
 def adjust_lr(optimizer, epoch, args):
@@ -879,17 +866,15 @@ def accuracy(output, target, topk=(1,)):
         return res
 
 
-
-
-def get_semantically_consistent_label(feature, center, target, scaling_factor,cls,k):
+def get_semantically_consistent_label(feature, center, target, scaling_factor, cls, k):
     #get the scaling factor omega
-    scaling_factor=scaling_factor[0]/scaling_factor[1]
+    scaling_factor = scaling_factor[0] / scaling_factor[1]
     #get N
     cls_num_list = torch.cuda.FloatTensor(cls)
     #sum(log(N_i))
-    weight=torch.log((cls_num_list*target).sum(1))
+    weight = torch.log((cls_num_list * target).sum(1))
     #N /sum(log(N_i))
-    weight=(weight/(torch.log(cls_num_list).sum())).reshape(-1,1)
+    weight = (weight / (torch.log(cls_num_list).sum())).reshape(-1, 1)
     target_de = target.detach()
     center_de = center.detach()
     feature_de = feature.detach()
@@ -902,7 +887,7 @@ def get_semantically_consistent_label(feature, center, target, scaling_factor,cl
     final_sim = sim
     # normlaization
     label = F.normalize(final_sim, p=1, dim=1)
-    label = (weight*scaling_factor) * label + (1 - weight*scaling_factor) * target_de
+    label = (weight * scaling_factor) * label + (1 - weight * scaling_factor) * target_de
     return label
 
 
