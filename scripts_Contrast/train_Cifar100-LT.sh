@@ -1,5 +1,5 @@
-python /home/Users/dqy/Projects/ConCutMix/main.py\
-  --data /home/Users/dqy/Projects/ConCutMix/data/Cifar100-LT/ \
+CUDA_VISIBLE_DEVICES=4,5 python /home/Users/dqy/Projects/ConCutMix/main.py\
+  --data "/home/Users/dqy/Dataset/Cifar100-LT/format_ImageNet/images/" \
   --lr 0.15 -p 194 --epochs 200 \
   --arch resnet32 \
   --wd 5e-4 \
@@ -18,4 +18,5 @@ python /home/Users/dqy/Projects/ConCutMix/main.py\
   --l_d_warm 100\
   --topk 30\
   --scaling_factor 20 255\
-  --num_classes 100
+  --num_classes 100 \
+  --device_ids 0 1

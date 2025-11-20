@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import transforms
 from dataset.cifar import IMBALANCECIFAR10
 from dataset.cifar import IMBALANCECIFAR100
+from dataset.cifar import Cifar100
 from dataset.imagenet import ImageNetLT, ImageNet100
 from dataset.inaturalist import INaturalist
 from dataset.PlacesLT import PlacesLT
@@ -116,9 +117,18 @@ parser.add_argument('--scaling_factor', default=[2, 256], nargs='*', type=int,
 parser.add_argument('--tau', default=1, type=float)
 parser.add_argument('--topk', default=1, type=int)
 
+# feature extraction
+parser.add_argument('--extract_feature', action='store_true', help="extract features and save to dir")
+parser.add_argument('--extract_phase', default='val', help="train or val", choices=['train', 'val'])
+parser.add_argument('--save_dir', default="", type=str)
+
 
 def main():
     args = parser.parse_args()
+    if args.extract_feature:
+        assert args.reload
+        assert args.resume != ""
+        assert args.save_dir != ""
     args.store_name = '_'.join(
         [args.file_name, args.dataset, args.arch, 'batchsize', str(args.batch_size), 'epochs', str(args.epochs), 'temp',
          str(args.temp), "cutmix_prob", str(args.cutmix_prob), "topk", str(args.topk), "scaling_factor",
@@ -182,7 +192,10 @@ def setup_logging(log_file):
 
 def main_worker(gpu, ngpus_per_node, args):
     # 设置日志
-    log_file = os.path.join(args.root_log, args.store_name, "log.txt")
+    if args.extract_feature:
+        log_file = os.path.join(args.root_log, args.store_name, "log_val.txt")
+    else:
+        log_file = os.path.join(args.root_log, args.store_name, "log.txt")
     logger = setup_logging(log_file)
     logger_run = None
     logger.info(args.logger)
@@ -259,7 +272,7 @@ def main_worker(gpu, ngpus_per_node, args):
             logger.info("=> loading checkpoint '{}'".format(args.resume))
             checkpoint = torch.load(args.resume, map_location='cuda:0')
             args.start_epoch = checkpoint['epoch']
-            best_acc1 = checkpoint['best_acc1']
+            best_acc1 = checkpoint['best_acc1'] if 'best_acc1' in checkpoint else 0.0
             if args.gpu is not None:
                 # best_acc1 may be from a checkpoint from a different GPU
                 best_acc1 = best_acc1.to(args.gpu)
@@ -267,7 +280,7 @@ def main_worker(gpu, ngpus_per_node, args):
             optimizer.load_state_dict(checkpoint['optimizer'])
             logger.info("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
-            logger.info("best_acc1", best_acc1)
+            logger.info("best_acc1 {}".format(best_acc1))
         else:
             logger.info("=> no checkpoint found at '{}'".format(args.resume))
     elif args.auto_resume:
@@ -302,8 +315,10 @@ def main_worker(gpu, ngpus_per_node, args):
 
     normalize = transforms.Normalize((0.466, 0.471, 0.380), (0.195, 0.194, 0.192)) if args.dataset == 'inat' \
         else transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
-
-    rgb_mean = (0.485, 0.456, 0.406)
+    rgb_mean = (0.466, 0.471, 0.380) if args.dataset == 'inat' else (0.485, 0.456, 0.406)
+    if args.dataset in ["Cifar100", "Cifar100-LT"]:
+        normalize = transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+        rgb_mean = (0.4914, 0.4822, 0.4465)
     ra_params = dict(translate_const=int(224 * 0.45), img_mean=tuple([min(255, round(255 * x)) for x in rgb_mean]), )
     if not os.path.exists('{}/'.format(os.path.join(args.root_log, args.store_name))):  # 判断所在目录下是否有该文件名的文件夹
         os.makedirs(os.path.join(args.root_log, args.store_name), exist_ok=True)
@@ -373,8 +388,12 @@ def main_worker(gpu, ngpus_per_node, args):
                            transforms.Compose(augmentation_sim_cifar), ]
     else:
         raise NotImplementedError("This augmentations strategy is not available for contrastive learning branch!")
+    if args.dataset in ["Cifar100", "Cifar100-LT"]:
+        transform_train = [transforms.Compose(Uncut_augmentation_regular), transforms.Compose(augmentation_sim_cifar),
+                           transforms.Compose(augmentation_sim_cifar), ]
 
-    if (args.dataset == 'inat'):
+    txt_train, txt_val = "", ""
+    if args.dataset == 'inat':
         val_transform = transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),
@@ -396,7 +415,7 @@ def main_worker(gpu, ngpus_per_node, args):
             args=args,
             transform=transform_train
         )
-    elif (args.dataset == 'iNaturalist'):
+    elif args.dataset == 'iNaturalist':
         val_transform = transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),
@@ -437,7 +456,6 @@ def main_worker(gpu, ngpus_per_node, args):
             root=args.data,
             txt=txt_val,
             transform=val_transform, train=False, args=args)
-
     elif args.dataset == 'ImageNet100':
         val_transform = transforms.Compose([
             transforms.Resize(256),
@@ -477,7 +495,7 @@ def main_worker(gpu, ngpus_per_node, args):
             txt=txt_val,
             transform=val_transform, train=False, args=args)
 
-    elif args.dataset == 'cifar10' or args.dataset == 'Cifar10-LT':
+    elif args.dataset == 'cifar10':
         val_transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
@@ -489,19 +507,7 @@ def main_worker(gpu, ngpus_per_node, args):
             root=args.data, args=args, download=True,
             imb_factor=args.imb_factor,
             transform=transform_train)
-    elif args.dataset == 'Cifar10':
-        val_transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        ])
-        val_dataset = IMBALANCECIFAR10(root=args.data, args=args,
-                                       transform=val_transform,
-                                       train=False, imb_factor=1, download=True)
-        train_dataset = IMBALANCECIFAR10(
-            root=args.data, args=args, download=True,
-            imb_factor=1,
-            transform=transform_train)
-    elif args.dataset == 'cifar100' or args.dataset == 'Cifar100-LT':
+    elif args.dataset == 'cifar100':
         val_transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
@@ -518,17 +524,35 @@ def main_worker(gpu, ngpus_per_node, args):
     elif args.dataset == 'Cifar100':
         val_transform = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+            normalize
         ])
-        val_dataset = IMBALANCECIFAR100(root=args.data, args=args,
-                                        download=True,
-                                        transform=val_transform,
-                                        train=False, imb_factor=1)
-        train_dataset = IMBALANCECIFAR100(
-            root=args.data, args=args,
-            download=True,
-            imb_factor=1,
+        txt_val = "/home/Users/dqy/Dataset/Cifar/format_ImageNet/images/val.txt"
+        txt_train = "/home/Users/dqy/Dataset/Cifar/format_ImageNet/images/train.txt"
+        train_dataset = Cifar100(
+            root=args.data,
+            args=args,
+            txt=txt_train,
             transform=transform_train)
+        val_dataset = Cifar100(
+            root=args.data,
+            txt=txt_val,
+            transform=val_transform, train=False, args=args)
+    elif args.dataset == 'Cifar100-LT':
+        val_transform = transforms.Compose([
+            transforms.ToTensor(),
+            normalize
+        ])
+        txt_val = "/home/Users/dqy/Dataset/Cifar100-LT/format_ImageNet/images/val.txt"
+        txt_train = "/home/Users/dqy/Dataset/Cifar100-LT/format_ImageNet/images/train.txt"
+        train_dataset = Cifar100(
+            root=args.data,
+            args=args,
+            txt=txt_train,
+            transform=transform_train)
+        val_dataset = Cifar100(
+            root=args.data,
+            txt=txt_val,
+            transform=val_transform, train=False, args=args)
     elif args.dataset == 'Places_LT' or args.dataset == 'Places365-LT':
         val_transform = transforms.Compose([
             transforms.Resize(256),
@@ -579,7 +603,7 @@ def main_worker(gpu, ngpus_per_node, args):
         num_workers=args.workers, pin_memory=True)
 
     val_loader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=args.batch_size, shuffle=False,
+        val_dataset, batch_size=args.batch_size, shuffle=True,
         num_workers=args.workers, pin_memory=True)
 
     criterion_scl = BalSCL(cls_num_list, args.temp).cuda(args.gpu)
@@ -587,9 +611,41 @@ def main_worker(gpu, ngpus_per_node, args):
     criterion_ce_cutmix = cutmix_cross_entropy(cls_num_list, args.tau).cuda(args.gpu)
 
     if args.reload:
-        if (args.dataset == 'inat'):
+        test_dataset = None
+        if args.dataset == 'inat':
             txt_test = f'../dataset/iNaturalist18/iNaturalist18_val.txt'
             test_dataset = INaturalist(
+                root=args.data,
+                txt=txt_test,
+                transform=val_transform, train=False, args=args)
+        elif (args.dataset == 'iNaturalist'):
+            txt_test = txt_val if args.extract_phase == "val" else txt_train
+            test_dataset = INaturalist(
+                root=args.data,
+                txt=txt_test,
+                transform=val_transform, train=False, args=args
+            )
+        elif args.dataset == 'ImageNet100':
+            txt_test = txt_val if args.extract_phase == "val" else txt_train
+            test_dataset = ImageNet100(
+                root=args.data,
+                txt=txt_test,
+                transform=val_transform, train=False, args=args)
+        elif args.dataset == 'ImageNet100-LT':
+            txt_test = txt_val if args.extract_phase == "val" else txt_train
+            test_dataset = ImageNet100(
+                root=args.data,
+                txt=txt_test,
+                transform=val_transform, train=False, args=args)
+        elif args.dataset == 'Cifar100':
+            txt_test = txt_val if args.extract_phase == "val" else txt_train
+            test_dataset = Cifar100(
+                root=args.data,
+                txt=txt_test,
+                transform=val_transform, train=False, args=args)
+        elif args.dataset == 'Cifar100-LT':
+            txt_test = txt_val if args.extract_phase == "val" else txt_train
+            test_dataset = Cifar100(
                 root=args.data,
                 txt=txt_test,
                 transform=val_transform, train=False, args=args)
@@ -600,20 +656,28 @@ def main_worker(gpu, ngpus_per_node, args):
                 txt=txt_test,
                 transform=val_transform, train=False, args=args)
         elif args.dataset == 'cifar10':
-            test_dataset = IMBALANCECIFAR10(root=args.data, args=args, transform=val_transform, train=False,
-                                            imb_factor=1, download=True)
-        elif args.dataset == 'Places_LT':
-            txt_train = f'../dataset/Places_LT/Places_LT_val.txt'
-
+            test_dataset = IMBALANCECIFAR10(root=args.data, args=args, transform=val_transform,
+                                            train=args.extract_phase == "train",
+                                            imb_factor=1 if args.extract_phase == "val" else 0.1, download=True)
+        elif args.dataset == 'cifar100':
+            test_dataset = IMBALANCECIFAR100(root=args.data, args=args,
+                                            download=True,
+                                            transform=val_transform,
+                                            train=args.extract_phase == "train", imb_factor=1)
+        elif args.dataset == 'Places_LT' or args.dataset == 'Places365-LT':
+            txt_test = txt_val if args.extract_phase == "val" else txt_train
             test_dataset = PlacesLT(
                 root=args.data,
-                txt=txt_val,
+                txt=txt_test,
                 transform=val_transform, train=False, args=args)
-
+        elif args.dataset == 'Places365':
+            txt_test = txt_val if args.extract_phase == "val" else txt_train
+            test_dataset = PlacesLT(
+                root=args.data,
+                txt=txt_test,
+                transform=val_transform, train=False, args=args)
         else:
-            test_dataset = IMBALANCECIFAR100(root=args.data, args=args, transform=val_transform, train=False,
-                                             imb_factor=1,
-                                             download=True)
+            raise ValueError(f"Not implemented dataset {args.dataset}")
 
         test_loader = torch.utils.data.DataLoader(
             test_dataset, batch_size=args.batch_size, shuffle=False,
@@ -621,7 +685,6 @@ def main_worker(gpu, ngpus_per_node, args):
         acc1, many, med, few, class_acc, scl_loss = validate(train_loader, test_loader, model, criterion_ce, criterion_scl, 1, args, logger=logger)
         logger.info('Prec@1: {:.3f}, Many Prec@1: {:.3f}, Med Prec@1: {:.3f}, Few Prec@1: {:.3f}, SCL loss: {:.3f}'
               .format(acc1, many, med, few, scl_loss))
-
         return
     logger.info("start train")
     for epoch in range(args.start_epoch, args.epochs):
@@ -670,9 +733,9 @@ def main_worker(gpu, ngpus_per_node, args):
             'optimizer': optimizer.state_dict(),
         }, is_best)
         # remember best scl and save checkpoint
-        is_best = scl_loss < best_scl
+        is_best_scl = scl_loss < best_scl
         best_scl = min(scl_loss, best_scl)
-        if is_best:
+        if is_best_scl:
             if (logger_run != None):
                 logger_run["val/best_scl_loss"].log(best_scl, step=epoch)
             logger.info(
@@ -781,7 +844,7 @@ def train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl,
                       'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
                       'loss {loss:.4f}'.format(
                 epoch, i, len(train_loader), batch_time=batch_time,
-                ce_loss=ce_loss_all, scl_loss=scl_loss_all, top1=top1, loss=loss))  # TODO
+                ce_loss=ce_loss_all, scl_loss=scl_loss_all, top1=top1, loss=loss))
             logger.info(output)
 
         ce_loss_all.update(ce_loss.item(), batch_size)
@@ -789,7 +852,15 @@ def train(train_loader, model, criterion_ce, criterion_ce_cutmix, criterion_scl,
 
         acc1 = accuracy(logits, target_A, topk=(1,))
         top1.update(acc1[0].item(), batch_size)
-
+    output = ('Epoch Summary: [{0}][{1}/{2}] \t'
+              'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+              'CE_Loss {ce_loss.val:.4f} ({ce_loss.avg:.4f})\t'
+              'SCL_Loss {scl_loss.val:.4f} ({scl_loss.avg:.4f})\t'
+              'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
+              'loss {loss:.4f}'.format(
+        epoch, i, len(train_loader), batch_time=batch_time,
+        ce_loss=ce_loss_all, scl_loss=scl_loss_all, top1=top1, loss=loss))
+    logger.info(output)
     return ce_loss_all.avg, scl_loss_all.avg, top1.avg, loss
 
 
@@ -801,11 +872,14 @@ def validate(train_loader, val_loader, model, criterion_ce, criterion_scl, epoch
     scl_loss_all = AverageMeter('SCL_Loss', ':.4e')
     total_logits = torch.empty((0, args.cls_num)).cuda()
     total_labels = torch.empty(0, dtype=torch.long).cuda()
+    # for feature extraction
+    if args.extract_feature:
+        os.makedirs(args.save_dir, exist_ok=True)
 
     with torch.no_grad():
         end = time.time()
         for i, data in enumerate(val_loader):
-            inputs, targets = data
+            inputs, targets, categories, names = data
             inputs, targets = inputs.cuda(), targets.cuda()
             batch_size = targets.size(0)
 
@@ -837,9 +911,23 @@ def validate(train_loader, val_loader, model, criterion_ce, criterion_scl, epoch
                     i, len(val_loader), batch_time=batch_time, ce_loss=ce_loss_all, scl_loss=scl_loss_all, top1=top1,
                 ))
                 logger.info(output)
+            if args.extract_feature:
+                for b in range(inputs.size(0)):
+                    save_path = os.path.join(args.save_dir, categories[b], f"{names[b]}.npy")
+                    os.makedirs(os.path.join(args.save_dir, categories[b]), exist_ok=True)
+                    np.save(save_path, feat_mlp[b].cpu().numpy())
         probs, preds = F.softmax(total_logits.detach(), dim=1).max(dim=1)
         many_acc_top1, median_acc_top1, low_acc_top1, class_acc = shot_acc(preds, total_labels, train_loader,
                                                                            acc_per_cls=False)
+        output = ('Test Summary: [{0}/{1}]\t'
+                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                  'CE_Loss {ce_loss.val:.4f} ({ce_loss.avg:.4f})\t'
+                  'SCL_Loss {scl_loss.val:.4f} ({scl_loss.avg:.4f})\t'
+                  'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
+        .format(
+            i, len(val_loader), batch_time=batch_time, ce_loss=ce_loss_all, scl_loss=scl_loss_all, top1=top1,
+        ))
+        logger.info(output)
         return top1.avg, many_acc_top1, median_acc_top1, low_acc_top1, class_acc, scl_loss_all.avg
 
 
