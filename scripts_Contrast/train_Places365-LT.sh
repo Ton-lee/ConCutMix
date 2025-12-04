@@ -1,4 +1,4 @@
-python /home/Users/dqy/Projects/ConCutMix/main.py --data /home/Users/dqy/Dataset/Places365-LT/format_ImageNet/images/ \
+CUDA_VISIBLE_DEVICES=4,5 python /home/Users/dqy/Projects/ConCutMix/main.py --data /home/Users/dqy/Dataset/Places365-LT/format_ImageNet/images/ \
   --lr 0.1 -p 300 --epochs 100 \
   --arch resnet152 \
   --use_norm \
@@ -16,4 +16,5 @@ python /home/Users/dqy/Projects/ConCutMix/main.py --data /home/Users/dqy/Dataset
   --num_classes 365\
   --imb_factor 1\
   --alpha 0 \
-  --beta 1
+  --beta 1 \
+  --device_ids 0 1

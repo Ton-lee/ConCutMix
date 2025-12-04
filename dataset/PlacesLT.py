@@ -26,7 +26,7 @@ class PlacesLT(Dataset):
         with open(txt) as f:
             for line in f:
                 self.img_path.append(os.path.join(root, line.split()[0]))
-                self.labels.append(int(line.split()[1]))
+                self.labels.append(int(mapping[line.split()[1]]))
                 self.categories.append(line.split()[1])
 
         self.class_data = [[] for i in range(self.num_classes)]

@@ -1,5 +1,5 @@
 python /home/Users/dqy/Projects/ConCutMix/main.py --data /home/Users/dqy/Dataset/Places365-LT/format_ImageNet/images/ \
-  --lr 0.1 -p 300 --epochs 100 \
+  --lr 0.1 -p 300 --epochs 200 \
   --arch resnet152 \
   --use_norm \
   --wd 5e-4 \

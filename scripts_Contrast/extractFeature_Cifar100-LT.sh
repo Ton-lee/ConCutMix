@@ -3,7 +3,7 @@ data_root="/home/Users/dqy/Dataset/Cifar100-LT/format_ImageNet/images/"
 ckpt_path="/home/Users/dqy/Projects/ConCutMix/log_Contrast/baseline_Cifar100-LT_resnet32_batchsize_256_epochs_200_temp_0.1_cutmix_prob_0.5_topk_30_scaling_factor_20_255_tau_1.0_lr_0.15_uncutout-sim/ConCutMix_ckpt.best_scl.pth.tar"
 save_root="/home/Users/dqy/Projects/ConCutMix/results/"
 log_root="/home/Users/dqy/Projects/ConCutMix/log_Contrast"
-extract_phase="val"
+extract_phase="train"
 python /home/Users/dqy/Projects/ConCutMix/main.py\
   --data "${data_root}" \
   --lr 0.15 -p 194 --epochs 200 \

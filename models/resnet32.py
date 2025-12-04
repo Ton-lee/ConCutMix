@@ -328,8 +328,9 @@ model_dict = {
 
 
 class BCLModel_32(nn.Module):
-    def __init__(self, num_classes=10, name='resnet50', head='mlp', use_norm=True, feat_dim=128):
+    def __init__(self, num_classes=10, name='resnet50', head='mlp', use_norm=True, feat_dim=128, return_features=False):
         super(BCLModel_32, self).__init__()
+        self.return_features = return_features
         model_fun, dim_in = model_dict[name]
         self.encoder = model_fun()
         if head == 'mlp':
@@ -351,6 +352,7 @@ class BCLModel_32(nn.Module):
 
 
     def forward(self, x):
+        if self.return_features: return self.forward_features(x)
         feat = self.encoder(x)
         feat_mlp = F.normalize(self.head(feat), dim=1)
         logits = self.fc(feat)
@@ -360,3 +362,12 @@ class BCLModel_32(nn.Module):
         unfn_feat=self.head(feat)
 
         return feat_mlp, logits, centers_logits, unfn_centers, unfn_feat
+
+    def forward_features(self, x):
+        feat = self.encoder(x)
+        feat_mlp = F.normalize(self.head(feat), dim=1)
+        logits = self.fc(feat)
+        centers_logits = F.normalize(self.head_fc(self.fc.weight.T), dim=1)
+        unfn_centers=self.head_fc(self.fc.weight.T)
+        unfn_feat=self.head(feat)
+        return feat_mlp, logits, centers_logits, unfn_centers, unfn_feat, feat

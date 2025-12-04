@@ -120,7 +120,15 @@ parser.add_argument('--topk', default=1, type=int)
 # feature extraction
 parser.add_argument('--extract_feature', action='store_true', help="extract features and save to dir")
 parser.add_argument('--extract_phase', default='val', help="train or val", choices=['train', 'val'])
+parser.add_argument('--extract_type', default='contrast', help="contrast or classification", choices=['contrast', 'classification'])
 parser.add_argument('--save_dir', default="", type=str)
+
+
+def label_to_name(args):
+    root = f"/home/Users/dqy/Dataset/{args.dataset}/format_ImageNet/images/train/"
+    categories = sorted(os.listdir(root))
+    mapping = {idx: category for idx, category in enumerate(categories)}
+    return mapping
 
 
 def main():
@@ -231,24 +239,27 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.arch == 'resnet50':
         model = BCLModel(name='resnet50', feat_dim=args.feat_dim,
                          num_classes=args.num_classes,
-
-                         use_norm=args.use_norm)
+                         use_norm=args.use_norm,
+                         return_features=args.extract_feature and args.extract_type == "classification")
     elif args.arch == 'resnext50':
         model = BCLModel(name='resnext50', feat_dim=args.feat_dim, num_classes=args.num_classes,
-                         use_norm=args.use_norm)
+                         use_norm=args.use_norm,
+                         return_features=args.extract_feature and args.extract_type == "classification")
     elif args.arch == 'resnet32':
-
         model = BCLModel_32(name='resnet32', feat_dim=args.feat_dim,
                             num_classes=args.num_classes,
-                            use_norm=args.use_norm)
+                            use_norm=args.use_norm,
+                            return_features=args.extract_feature and args.extract_type == "classification")
     elif args.arch == "resnet152":
         model = BCLModel(name='resnet152', feat_dim=args.feat_dim,
                          num_classes=args.num_classes,
-                         use_norm=args.use_norm)
+                         use_norm=args.use_norm,
+                         return_features=args.extract_feature and args.extract_type == "classification")
     elif args.arch == 'resnext101':
         model = BCLModel(name='resnext101', feat_dim=args.feat_dim,
                          num_classes=args.num_classes,
-                         use_norm=args.use_norm)
+                         use_norm=args.use_norm,
+                         return_features=args.extract_feature and args.extract_type == "classification")
     else:
         raise NotImplementedError('This model is not supported')
     # print(model)
@@ -875,6 +886,7 @@ def validate(train_loader, val_loader, model, criterion_ce, criterion_scl, epoch
     # for feature extraction
     if args.extract_feature:
         os.makedirs(args.save_dir, exist_ok=True)
+    label2category = label_to_name(args)
 
     with torch.no_grad():
         end = time.time()
@@ -883,13 +895,15 @@ def validate(train_loader, val_loader, model, criterion_ce, criterion_scl, epoch
             inputs, targets = inputs.cuda(), targets.cuda()
             batch_size = targets.size(0)
 
-            feat_mlp, logits, centers, _, __ = model(inputs)
+            if args.extract_feature and args.extract_type =="classification":
+                feat_mlp, logits, centers, _, _, features_encoder = model(inputs)
+            else:
+                feat_mlp, logits, centers, _, _ = model(inputs)
 
             ce_loss = criterion_ce(logits, targets)
             centers = centers[:args.cls_num]
             features = feat_mlp[:, None, :].repeat((1, 2, 1))
             target_A = targets
-            # print(centers.shape, features.shape, target_A.shape)
             scl_loss = criterion_scl(centers, features, target_A, )
             total_logits = torch.cat((total_logits, logits))
             total_labels = torch.cat((total_labels, targets))
@@ -911,11 +925,57 @@ def validate(train_loader, val_loader, model, criterion_ce, criterion_scl, epoch
                     i, len(val_loader), batch_time=batch_time, ce_loss=ce_loss_all, scl_loss=scl_loss_all, top1=top1,
                 ))
                 logger.info(output)
-            if args.extract_feature:
+            if args.extract_feature and args.extract_type == "contrast":  # 提取对比特征
                 for b in range(inputs.size(0)):
                     save_path = os.path.join(args.save_dir, categories[b], f"{names[b]}.npy")
                     os.makedirs(os.path.join(args.save_dir, categories[b]), exist_ok=True)
                     np.save(save_path, feat_mlp[b].cpu().numpy())
+            if args.extract_feature and args.extract_type =="classification":  # 提取分类特征（经分类头前）
+                feats = features_encoder.cpu().numpy()
+                # 获取预测结果
+                probs = F.softmax(logits, dim=1)
+                pred_probs, pred_indices = torch.max(probs, dim=1)
+                for feat, name, label, output, pred_prob, pred_idx in zip(
+                    feats, names, targets, logits, pred_probs, pred_indices):
+                    
+                    # 转换为 numpy 和 Python 标量
+                    feat_np = feat
+                    label_np = int(label.cpu().numpy())
+                    output_np = output.cpu().numpy()
+                    pred_idx_np = int(pred_idx.cpu().numpy())
+                    pred_prob_np = float(pred_prob.cpu().numpy())
+                    
+                    # 获取类别信息
+                    actual_category = str(label_np)
+                    actual_label_id = int(label_np)
+                    pred_category = str(pred_idx_np)
+                    pred_label_id = int(pred_idx_np)
+                    
+                    # 保存特征
+                    os.makedirs(os.path.join(args.save_dir, "ConCutMix_features", actual_category), exist_ok=True)
+                    np.save(os.path.join(args.save_dir, "ConCutMix_features", actual_category, f"{name.split('.')[0]}.npy"), feat_np)
+                    
+                    # 保存 logits 和预测信息
+                    os.makedirs(os.path.join(args.save_dir, "Logits", actual_category), exist_ok=True)
+                    
+                    # 创建保存字典
+                    save_data = {
+                        'logits': output_np,  # logits 输出
+                        'predicted_category': pred_category,  # 预测类别名称
+                        'predicted_label_id': pred_label_id,  # 预测类别ID
+                        'predicted_probability': pred_prob_np,  # 预测概率
+                        'actual_category': actual_category,  # 实际类别名称
+                        'actual_label_id': actual_label_id,  # 实际类别ID
+                        'image_name': name,  # 图像文件名
+                        'feature_shape': feat_np.shape  # 特征维度
+                    }
+                    
+                    # 保存为 npz 文件（可以保存多个数组）
+                    np.savez(
+                        os.path.join(args.save_dir, "Logits", actual_category, f"{name.split('.')[0]}.npz"),
+                        **save_data
+                    )
+
         probs, preds = F.softmax(total_logits.detach(), dim=1).max(dim=1)
         many_acc_top1, median_acc_top1, low_acc_top1, class_acc = shot_acc(preds, total_labels, train_loader,
                                                                            acc_per_cls=False)

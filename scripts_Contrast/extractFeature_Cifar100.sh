@@ -1,9 +1,9 @@
 dataset="Cifar100"
 data_root="/home/Users/dqy/Dataset/Cifar100/format_ImageNet/images/"
-ckpt_path=""
+ckpt_path="/home/Users/dqy/Projects/ConCutMix/log_Contrast/baseline_Cifar100_resnet32_batchsize_256_epochs_200_temp_0.1_cutmix_prob_0.5_topk_30_scaling_factor_20_255_tau_1.0_lr_0.15_uncutout-sim/ConCutMix_ckpt.best_scl.pth.tar"
 save_root="/home/Users/dqy/Projects/ConCutMix/results/"
 log_root="/home/Users/dqy/Projects/ConCutMix/log_Contrast"
-extract_phase="val"
+extract_phase="train"
 python /home/Users/dqy/Projects/ConCutMix/main.py\
   --data "${data_root}" \
   --lr 0.15 -p 194 --epochs 200 \
@@ -20,7 +20,7 @@ python /home/Users/dqy/Projects/ConCutMix/main.py\
   --file_name baseline \
   --root_log "${log_root}"\
   --dataset "${dataset}"\
-  --imb_factor 0.1\
+  --imb_factor 1\
   --l_d_warm 100\
   --topk 30\
   --scaling_factor 20 255\
