@@ -1,8 +1,8 @@
 #!/bin/bash
-# 基于 ResNet backbone 对图像进行分类，并引入知识库微调特征。但基于 Contrast 特征进行索引
+# 以先验权重 0.0 测试原始模型性能
 
-DATASET="iNaturalist"
-checkpoint="/home/Users/dqy/Projects/ConCutMix/log/baseline_iNaturalist_resnet50_batchsize_128_epochs_100_temp_0.07_cutmix_prob_0.5_topk_30_scaling_factor_1628_255_tau_0.99_lr_0.2_sim-sim/ConCutMix_ckpt.best_acc1.pth.tar"
+DATASET="Cifar100-LT"
+checkpoint="/home/Users/dqy/Projects/ConCutMix/log/baseline_Cifar100-LT_resnet32_batchsize_256_epochs_200_temp_0.1_cutmix_prob_0.5_topk_30_scaling_factor_20_255_tau_1.0_lr_0.15_uncutout-sim/ConCutMix_ckpt.best_acc1.pth.tar"
 save_root="/home/Users/dqy/Projects/ConCutMix/results_${DATASET}/distorted_with_knowledge_ConCutMix"
 script_path="/home/Users/dqy/Projects/ConCutMix/main_ConCutMix@${DATASET}.py"
 dataset_root="/home/Users/dqy/Dataset/${DATASET}/format_ImageNet/"
@@ -25,8 +25,8 @@ distortion_type="none"
 distortion_param=0
 output_file="${save_root}/performance_${distortion_type}.csv"
 mkdir -p "${save_root}"
-echo "distortion_type,distortion_param,prior_weight,knowledge_type,knowledge_K,retrieval_k,performance" > "${output_file}"
-device="2,3"
+# echo "distortion_type,distortion_param,prior_weight,knowledge_type,knowledge_K,retrieval_k,performance" > "${output_file}"
+device="4,5"
 
 # 进度统计变量
 start_time=$(date +%s)
@@ -47,12 +47,12 @@ calculate_remaining_time() {
 }
 
   distortion_name="${distortion_type}"
-  for prior_weight in "0.1" "0.2" "0.3" "0.4" "0.5"; do
+  for prior_weight in "0.0"; do
       for knowledge_type in "GMM_category"; do
-          for knowledge_K in 200000 100000 50000 20000 8142; do
+          for knowledge_K in 100; do
               knowledge_name="${knowledge_type}@K=${knowledge_K}"
               knowledge_path="${knowledge_root}/${knowledge_name}/"
-              for retrieval_k in 1 2 3 4 5; do
+              for retrieval_k in 1; do
                   current_iteration=$((current_iteration + 1))
                   current_time=$(date +%s)
                   elapsed=$((current_time - start_time))
@@ -71,21 +71,24 @@ calculate_remaining_time() {
                   echo ""
                   # 运行模型
                   CUDA_VISIBLE_DEVICES=${device} /home/Users/dqy/miniconda3/envs/SKB/bin/python "${script_path}" \
-                    --data "/home/Users/dqy/Dataset/${DATASET}/" \
-                    --lr 0.2 -p 600 --epochs 100 \
-                    --arch resnet50 \
-                    --use_norm  \
-                    --wd 1e-4 \
-                    --cos \
-                    --cl_views sim-sim\
-                    --batch-size 128\
-                    --tau 0.99\
-                    --l_d_warm 80\
-                    --scaling_factor 1628 255 \
+                    --data "${dataset_root}/images/" \
+                    --lr 0.15 -p 194 --epochs 200 \
+                    --arch resnet32 \
+                    --wd 5e-4 \
+                    --cl_views uncutout-sim \
+                    --batch-size 256\
+                    --feat_dim 128\
+                    --tau 1\
+                    --temp 0.1\
+                    --l_d_warm 100\
+                    --scaling_factor 20 255 \
                     --topk 30\
-                    --grad_c\
+                    --num_classes 100\
+                    --imb_factor 1\
+                    --warmup_epochs 5\
+                    --alpha 2 \
+                    --beta 0.6\
                     --file_name baseline \
-                    --num_classes 8142\
                     --root_log "${log_root}"\
                     --dataset "${DATASET}"\
                     --save_dir "${save_root}/weight=${prior_weight}/${knowledge_name}/top-${retrieval_k}/${distortion_name}/" \
@@ -97,18 +100,18 @@ calculate_remaining_time() {
                     --result_json_path "${save_root}/weight=${prior_weight}/${knowledge_name}/top-${retrieval_k}/${distortion_name}/result.json" \
                     --device_ids 0 1
 
-                  # 从日志文件中提取性能指标
-                  log_file="${save_root}/weight=${prior_weight}/${knowledge_name}/top-${retrieval_k}/${distortion_name}/log.txt"
-                  if [ -f "${log_file}" ]; then
-                      # 获取第4行，然后取最后一个空格后的内容
-                      performance=$(sed -n '5p' "${log_file}" | awk '{print $NF}')
+                  # # 从日志文件中提取性能指标
+                  # log_file="${save_root}/weight=${prior_weight}/${knowledge_name}/top-${retrieval_k}/${distortion_name}/log.txt"
+                  # if [ -f "${log_file}" ]; then
+                  #     # 获取第4行，然后取最后一个空格后的内容
+                  #     performance=$(sed -n '5p' "${log_file}" | awk '{print $NF}')
 
-                      # 将结果写入CSV文件
-                      echo "${distortion_type},${distortion_param},${prior_weight},${knowledge_type},${knowledge_K},${retrieval_k},${performance}" >> "${output_file}"
-                  else
-                      echo "Log file not found: ${log_file}"
-                      echo "${distortion_type},${distortion_param},${prior_weight},${knowledge_type},${knowledge_K},${retrieval_k},NA" >> "${output_file}"
-                  fi
+                  #     # 将结果写入CSV文件
+                  #     echo "${distortion_type},${distortion_param},${prior_weight},${knowledge_type},${knowledge_K},${retrieval_k},${performance}" >> "${output_file}"
+                  # else
+                  #     echo "Log file not found: ${log_file}"
+                  #     echo "${distortion_type},${distortion_param},${prior_weight},${knowledge_type},${knowledge_K},${retrieval_k},NA" >> "${output_file}"
+                  # fi
               done
           done
       done
