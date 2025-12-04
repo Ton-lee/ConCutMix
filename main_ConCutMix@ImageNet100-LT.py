@@ -37,7 +37,7 @@ import faiss
 
 
 # 数据集配置
-DATASET = "ImageNet100"
+DATASET = "ImageNet100-LT"
 IMG_SIZE = (224, 224)
 # ConCutMix 对比模型相关参数
 ARCH = "resnet50"
