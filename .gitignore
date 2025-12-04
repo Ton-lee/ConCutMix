@@ -3,5 +3,10 @@
 /log_Contrast/
 /results/
 /results_ImageNet100/
+/results_ImageNet100-LT/
 /results_ori/
 /results_ori_temp/
+/results_Cifar100/
+/results_Cifar100-LT/
+/results_Places365/
+/results_Places365-LT/
