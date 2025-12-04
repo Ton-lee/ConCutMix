@@ -2,3 +2,6 @@
 /log/
 /log_Contrast/
 /results/
+/results_ImageNet100/
+/results_ori/
+/results_ori_temp/

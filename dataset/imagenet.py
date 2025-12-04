@@ -46,7 +46,7 @@ class ImageNetLT(Dataset):
 
         self.cls_num_list = [len(self.class_data[i]) for i in range(self.num_classes)]
         self.targets = self.labels  # Sampler needs to use targets
-        print("data init finish")
+        # print("data init finish")
 
     def __len__(self):
         return len(self.labels)
@@ -117,7 +117,7 @@ class ImageNet100(Dataset):
 
         self.cls_num_list = [len(self.class_data[i]) for i in range(self.num_classes)]
         self.targets = self.labels  # Sampler needs to use targets
-        print("data init finish")
+        # print("data init finish")
 
     def __len__(self):
         return len(self.labels)
